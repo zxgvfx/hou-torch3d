@@ -130,14 +130,12 @@ class Convert:
             raise RuntimeError("Input geometry error!")
 
 if __name__ == "__main__":
-    node = hou.pwd()
-    geo = node.geometry()
-    geo.clear()
-
-    trg_obj = 'file/obj/dolphin.obj'
-    # We read the target 3D model using load_obj
+    import os,sys
+    dir_path = os.path.dirname(__file__)
+    trg_obj = os.path.abspath(f'{dir_path}/../../file/obj/dolphin.obj')
     verts, faces, aux = load_obj(trg_obj)
 
-    c = Convert([verts.detach().numpy(), faces.verts_idx.detach().numpy()])
-    np_geo = c.toHoudini()
-    geo.copy(np_geo)
+    convert = Convert([verts.detach().numpy(), faces.verts_idx.detach().numpy()])
+    geo = convert.toHoudini()
+    print(geo.boundingBox())
+    # [-0.141481, 0.139833, 0.031976, 0.493277, -0.283368, 0.430819]
