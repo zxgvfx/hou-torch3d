@@ -1,3 +1,4 @@
+import hou
 def getGeomtryByKind(stage,
                     listPath,
                     type = 'component'):
@@ -35,4 +36,5 @@ iteration_light = int(hou.contextOption("ITERATIONLIGHT"))
 geoLPE = getLPE(geoListPath,'geo')[iteration_geo]
 lightLPE = getLPE(lightListPath,'light')[iteration_light]
 #<L.'light3'>
-return "C<..'{}'.>.*<L.'{}'>".format(geoLPE,lightLPE)
+# return "C<..'{}'.>.*<L.'{}'>".format(geoLPE,lightLPE)
+
