@@ -59,7 +59,7 @@ class CoreFuntion:
         :param p: numpy data with index, index -> p[-1]
         :return: numpy data shape(triangles or quads,)
         """
-        return np.array([pt.number() for pt in self.geo.prim([int(p[-1])]).points()])
+        return np.array([pt.number() for pt in np.array(self.geo.prim(int(p[-1])).points())[::-1]])
 
     def create_np_normal(self,p,) -> np.ndarray:
         """
@@ -83,8 +83,11 @@ class CoreFuntion:
 class Convert:
     def __init__(self,verts_data: tuple[np.ndarray]= None,
                  geo: hou.Geometry = None):
-        self.verts = verts_data[0]
-        self.verts_id = verts_data[1]
+        self.verts,self.verts_id = [],[]
+        if verts_data:
+            self.verts = verts_data[0]
+            self.verts_id = verts_data[1]
+
         self.geo = geo
         self.convert_type = -1
         self._init_data_()
@@ -98,28 +101,31 @@ class Convert:
         elif (self.geo != None ) and (len(self.verts)==0):
             point_id = np.arange(len(self.geo.points()),dtype=np.float32)
             prim_id = np.arange(len(self.geo.prims()),dtype=np.float32)
-            self.verts_index = np.concatenate(np.ndarray((point_id.shape[0],3),dtype=np.float32),point_id.reshape((-1,1)),1)
-            self.verts_id_index = np.concatenate(np.ndarray((prim_id.shape[0],3),dtype=np.float32),prim_id.reshape((-1,1)),1)
+            self.verts_index = np.concatenate((np.ndarray((point_id.shape[0],3),dtype=np.float32),
+                                               point_id.reshape((-1,1))),1)
+            self.verts_id_index = np.concatenate((np.ndarray((prim_id.shape[0],3),dtype=np.float32),
+                                                  prim_id.reshape((-1,1))),1)
             self.convert_type = 1
         else :
             point_id = np.arange(len(self.geo.points()), dtype=np.float32)
             prim_id = np.arange(len(self.geo.prims()), dtype=np.float32)
-            self.verts_index = np.concatenate(np.ndarray((point_id.shape[0], 3), dtype=np.float32),
-                                              point_id.reshape((-1, 1)), 1)
-            self.verts_id_index = np.concatenate(np.ndarray((prim_id.shape[0], 3), dtype=np.float32),
-                                                 prim_id.reshape((-1, 1)), 1)
+            self.verts_index = np.concatenate((np.ndarray((point_id.shape[0], 3), dtype=np.float32),
+                                              point_id.reshape((-1, 1))), 1)
+            self.verts_id_index = np.concatenate((np.ndarray((prim_id.shape[0], 3), dtype=np.float32),
+                                                 prim_id.reshape((-1, 1))), 1)
             self.convert_type = 2
 
     def toHoudini(self):
         if self.convert_type == 2 or self.convert_type == 0:
             c = CoreFuntion(self.geo)
             np.apply_along_axis(c.create_hou_points, 1,self.verts)
-            np.apply_along_axis(c.create_hou_prim, 1,self.verts_id)
+            if self.verts_id:
+                np.apply_along_axis(c.create_hou_prim, 1,self.verts_id)
             return self.geo
         else:
             print("No input pytorch3d (verts,verts_id) Data !")
 
-    def toPytorch3d(self):
+    def toPyNumpy(self):
         if self.convert_type == 2 or self.convert_type == 1:
             c = CoreFuntion(self.geo)
             self.verts = np.apply_along_axis(c.create_np_verts, 1, self.verts_index)
@@ -130,12 +136,23 @@ class Convert:
             raise RuntimeError("Input geometry error!")
 
 if __name__ == "__main__":
-    import os,sys
+    import os
     dir_path = os.path.dirname(__file__)
     trg_obj = os.path.abspath(f'{dir_path}/../../file/obj/dolphin.obj')
     verts, faces, aux = load_obj(trg_obj)
-
+    # ----------------
     convert = Convert([verts.detach().numpy(), faces.verts_idx.detach().numpy()])
     geo = convert.toHoudini()
-    print(geo.boundingBox())
+    # print(geo.boundingBox())
     # [-0.141481, 0.139833, 0.031976, 0.493277, -0.283368, 0.430819]
+    #----------------
+    geo_hou = hou.Geometry()
+    box_verb = hou.sopNodeTypeCategory().nodeVerb("box")
+    box_verb.setParms({
+        "t": hou.Vector3(0.5, -0.5, 2.0),
+        "scale": 0.5,
+    })
+    box_verb.execute(geo_hou , [])
+    convert = Convert(geo = geo_hou)
+    verts,verts_id =  convert.toPyNumpy()
+    print(verts,verts_id)
