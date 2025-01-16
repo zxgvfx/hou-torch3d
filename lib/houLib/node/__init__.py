@@ -4,3 +4,7 @@
 # @Author  : zxgvfx
 # @File    : __init__.py.py
 # @Software: PyCharm
+"""
+    houdini sop verb functions
+"""
+
