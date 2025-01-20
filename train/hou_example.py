@@ -1,7 +1,7 @@
 import imp
 import hou
 from train.blenshape import blend_by_points as bps
-from lib.toolLib import dataConvert as dc
+from pyLib.toolLib import dataConvert as dc
 
 from pytorch3d.utils import ico_sphere
 import torch
