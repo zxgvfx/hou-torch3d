@@ -31,6 +31,24 @@ class CoreFuntion:
             pts = self.geo.point(int(pt))
             poly.addVertex(pts)
 
+    def create_hou_attribs(self,
+                            attribs:dict,
+                            index:int):
+        pt = self.geo.point(index)
+        for att,value in attribs.items():
+            v = list(value.cpu().detach().numpy().astype(object)[index])
+            if len(v)>1:
+                if not self.geo.findPointAttrib(att):
+                    attrib = self.geo.addArrayAttrib(hou.attribType.Point,att,hou.attribData.Float,len(v))
+                else:
+                    attrib = self.geo.findPointAttrib(att)
+                pt.setAttribValue(att,v)
+            else:
+                if not self.geo.findPointAttrib(att):
+                    attrib = self.geo.addAttrib(hou.attribType.Point,att,v[0])
+                else:
+                    attrib = self.geo.findPointAttrib(att)
+                pt.setAttribValue(att,v[0])
     def create_hou_normal(self,p,):
         """
         Todo: To create houdini normal.
@@ -104,6 +122,9 @@ class Convert:
         """
         self.t3d_geo = t3d_geo
         self.geo = hou_geo
+        #---------other attribute------------
+        self._attribs = dict()
+        #---------------------------------
         if not force_device and torch.cuda.is_available():
             self.device = torch.device("cuda:0")
         else:
@@ -166,7 +187,6 @@ class Convert:
         else:
             print('请清理多余属性！！！')
 
-
     def toHoudini(self,verts_index:torch.Tensor=torch.tensor([]),
                   verts_id_index:torch.Tensor=torch.tensor([]),
                   meshes:Meshes=None)->hou.Geometry:
@@ -189,7 +209,7 @@ class Convert:
                 v,f =self.verts_index,self.verts_id_index
         else:
             v, f = verts_index, verts_id_index
-        return gen_geo_by_data(v,f)
+        return gen_geo_by_data(v,f,self._attribs)
 
     def updateFromGeo(self,geo: hou.Geometry):
         """
@@ -225,6 +245,30 @@ class Convert:
         self.geo = per_geo
         self._init_data()
 
+    def addAttrib(self,attrib_name: str,
+                  attrib_value: torch.Tensor,
+                  overlay: bool = False)->bool:
+        """
+        添加属性 attribute
+        #todo: 未来可能要添加压缩数据功能，数据索引与展平。
+        :param overlay: 强制覆盖
+        :param attrib_name: 属性名
+        :param attrib_value:属性值
+        :return:
+        """
+        if attrib_name in self._attribs.keys() and not overlay:
+            print(f'已存在{attrib_name}属性,请检查！')
+            return False
+        else:
+            self._attribs[attrib_name] = attrib_value.to(self.device)
+            return True
+
+    def getAttrib(self,attrib_name: str):
+        if attrib_name in self._attribs.keys():
+            return self._attribs[attrib_name]
+
+    def getAttribs(self):
+        return self._attribs
 
     def toMeshes(self,verts_index:torch.Tensor=torch.tensor([]),
                   verts_id_index:torch.Tensor=torch.tensor([]),
@@ -240,6 +284,11 @@ class Convert:
             else:
                 v,f = self.verts_index,self.verts_id_index
         return gen_meshes_by_data(v,f)
+
+    def toPointclouds(self,verts_index:torch.Tensor)->Pointclouds:
+        empty_verts_id_index = torch.tensor([])
+        return gen_meshes_by_data(verts_index,empty_verts_id_index)
+
 
     def create_index_by_data(self,verts_data: torch.Tensor,
                              face_data:  torch.Tensor = torch.tensor([]))\
@@ -264,7 +313,7 @@ class Convert:
         return verts_index, verts_id_index
 
 def gen_meshes_by_data(verts_index:torch.Tensor,
-           verts_id_index:torch.Tensor)->Meshes|Pointclouds:
+                       verts_id_index:torch.Tensor)->Meshes|Pointclouds:
     if verts_index.size().numel() !=0 and verts_id_index.size().numel() !=0 :
         v = torch.split(verts_index,verts_index.shape[-1]-1,dim=1)
         f = torch.split(verts_id_index,verts_id_index.shape[-1]-1,dim=1)
@@ -276,12 +325,17 @@ def gen_meshes_by_data(verts_index:torch.Tensor,
             return Pointclouds(points=[v[0]])
 
 def gen_geo_by_data(verts_index:torch.Tensor,
-           verts_id_index:torch.Tensor)->hou.Geometry:
+                    verts_id_index:torch.Tensor,
+                    attributes: dict)->hou.Geometry:
     geo = hou.Geometry()
     cvt = CoreFuntion(geo)
     np.apply_along_axis(cvt.create_hou_points, 1, verts_index.cpu().detach().numpy())
     if verts_id_index.size().numel() !=0 :
         np.apply_along_axis(cvt.create_hou_prim, 1, verts_id_index.cpu().detach().numpy())
+    #add attribute
+    if len(attributes.keys())>0:
+        [cvt.create_hou_attribs(attributes,i) for i,p in enumerate(verts_index.cpu().detach().numpy())]
+
     return geo
 
 if __name__ == "__main__":

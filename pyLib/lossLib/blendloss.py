@@ -20,7 +20,7 @@ class BlendLoss:
                 [0.0], dtype=torch.float32, device=meshes.device, requires_grad=True
             )
         N = len(meshes)
-        verts_packed = meshes.verts_packed()
+        verts_packed = meshes.verts_packed() # all points
         edges_packed = meshes.edges_packed()  # (sum(E_n), 3)
         edge_to_mesh_idx = meshes.edges_packed_to_mesh_idx()  # (sum(E_n), )
         num_edges_per_mesh = meshes.num_edges_per_mesh()
