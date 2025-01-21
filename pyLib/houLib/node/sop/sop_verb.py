@@ -42,4 +42,25 @@ class SopNode:
             per_set_param[key] = value
         node_verb.setParms(per_set_param)
         node_verb.execute(self.geo, [])
+    def topotransfer(self,input1: hou.Geometry,
+                     input2: hou.Geometry,
+                     input3: hou.Geometry,
+                     input4: hou.Geometry,
+                     param: dict = dict()):
+        """
+        sop node topotransfer
+        :param input1:
+        :param input2:
+        :param input3:
+        :param input4:
+        :param params:
+        :return:
+        """
+        node_verb = hou.sopNodeTypeCategory().nodeVerb("topotransfer")
+        per_set_param = {"enablegeometryconstraints": 1}
+        # updata param
+        for key, value in param.items():
+            per_set_param[key] = value
+        node_verb.setParms(per_set_param)
+        node_verb.execute(self.geo, [input1,input2,input3,input4])
 
