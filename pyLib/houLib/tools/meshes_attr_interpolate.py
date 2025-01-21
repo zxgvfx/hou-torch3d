@@ -50,7 +50,7 @@ def sample_points_from_geo(temp_point:hou.Geometry,
     temp_srcprim = torch.tensor(list(map(lambda x:x.attribValue('sourceprim'),temp_point.points())),device=temp_p.device)
     trg_srcprim = torch.tensor(list(map(lambda x:x.attribValue('sourceprim'),trg_point.points())),device=trg_p.device)
 
-    return (temp_p.reshape((1,-1,3)).cuda(),
-            trg_p.reshape((1,-1,3)).cuda(),
+    return (temp_p.reshape((1,-1,3)),
+            trg_p.reshape((1,-1,3)),
             temp_srcprim,
             trg_srcprim)
