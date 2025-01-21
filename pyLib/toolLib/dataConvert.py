@@ -95,6 +95,8 @@ class Convert:
                  force_device = False):
         """
         pytorch3d 数据与houdini Geometry 数据交换
+        t3d_geo to houdini 只保留了点属性
+        hou_geo to Meshes 只转换了点属性，如果需要还原 hou_geo的内容需要使用updateFromMeshes
         :param t3d_geo: pytoch3d数据
         :param hou_geo: houdini geometry 数据
         :param device:  cpu 或者 gpu 或者 apu
@@ -102,11 +104,15 @@ class Convert:
         """
         self.t3d_geo = t3d_geo
         self.geo = hou_geo
-        self.device = device
+        if not force_device and torch.cuda.is_available():
+            self.device = torch.device("cuda:0")
+        else:
+            self.device = device
+            print("WARNING: CPU only, this will be slow!")
         self.force_device = force_device
         self.verts_index = torch.tensor([])
         self.verts_id_index = torch.tensor([])
-        self._init_data_()
+        self._init_data()
 
 
     def create_index_from_meshes(self,meshes: Meshes = None)->tuple[torch.Tensor,torch.Tensor]:
@@ -150,19 +156,27 @@ class Convert:
             verts_index, verts_id_index = self.create_index_by_data(v)
         return verts_index, verts_id_index
 
-    def _init_data_(self):
+    def _init_data(self):
         if not self.t3d_geo and not self.geo:
             raise IOError("确保输入是否正确！！")
-        if self.t3d_geo and not self.geo:
+        elif self.t3d_geo and not self.geo:
             self.verts_index, self.verts_id_index = self.create_index_from_meshes()
-            self.geo = hou.Geometry()
-        if self.geo and not self.t3d_geo :
+        elif self.geo and not self.t3d_geo :
             self.verts_index,self.verts_id_index = self.create_index_from_geo()
+        else:
+            print('请清理多余属性！！！')
 
 
     def toHoudini(self,verts_index:torch.Tensor=torch.tensor([]),
                   verts_id_index:torch.Tensor=torch.tensor([]),
                   meshes:Meshes=None)->hou.Geometry:
+        """
+        如果有输入，那么就讲输入转换为 hou_geo ,如果没有，则使用 self.Meshes 转换成 hou_geo
+        :param verts_index:
+        :param verts_id_index:
+        :param meshes:
+        :return: hou.Geometry
+        """
         geo = hou.Geometry()
         v,f = verts_index,verts_id_index
         if verts_index.size().numel()==0:
@@ -170,12 +184,11 @@ class Convert:
                 if meshes:
                     v,f = self.create_index_from_meshes(meshes)
                 else:
-                    v,f = self.create_index_from_meshes(self.t3d_geo)
+                    v, f = self.create_index_from_meshes(meshes=self.t3d_geo)
             else:
                 v,f =self.verts_index,self.verts_id_index
-
         else:
-            v,f = verts_index,verts_id_index
+            v, f = verts_index, verts_id_index
         return gen_geo_by_data(v,f)
 
     def updateFromGeo(self,geo: hou.Geometry):
@@ -186,11 +199,14 @@ class Convert:
         """
         verts_index, verts_id_index = self.create_index_from_geo(geo)
         verts,_ = torch.split(verts_index, verts_index.shape[-1]-1, dim=1)
-        verts_id,_ = torch.split(verts_id_index, verts_index.shape[-1]-1, dim=1)
-        if verts.size().numel() == 0:
-            self.t3d_geo = Pointclouds(points=[verts[0]])
+        if verts_id_index.size().numel() == 0:
+            self.t3d_geo = Pointclouds(points=[verts])
+
         else:
-            self.t3d_geo = Meshes(verts=[verts[0]],faces=[verts_id[0]])
+            verts_id, _ = torch.split(verts_id_index, verts_index.shape[-1] - 1, dim=1)
+            self.t3d_geo = Meshes(verts=[verts],faces=[verts_id])
+        self.geo = None
+        self._init_data()
 
     def updateFromMeshes(self,meshes: Meshes):
         """
@@ -198,15 +214,21 @@ class Convert:
         :param meshes: 必须和 t3d中的Meshes 拓扑一致
         :return:
         """
-        verts_index, verts_id_index = self.create_index_from_geo(meshes)
+        per_geo = hou.Geometry()
+        per_geo.copy(self.geo)
+        verts_index, verts_id_index = self.create_index_from_meshes(meshes)
         geo = self.toHoudini(verts_index, verts_id_index)
-        self.geo = geo
+        for pt in per_geo.points():
+            pt_id = pt.number()
+            pt.setPosition(geo.point(pt_id).position())
+        self.t3d_geo = None
+        self.geo = per_geo
+        self._init_data()
 
 
     def toMeshes(self,verts_index:torch.Tensor=torch.tensor([]),
                   verts_id_index:torch.Tensor=torch.tensor([]),
                  geo:hou.Geometry = None)->Meshes|Pointclouds:
-
         v,f = verts_index,verts_id_index
         if verts_index.size().numel() == 0:
             # error: 如果模型既有三角面，又有四边面，需要将其全部转化为三角面或四边面

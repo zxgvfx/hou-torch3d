@@ -19,7 +19,6 @@ class BlendLoss:
             return torch.tensor(
                 [0.0], dtype=torch.float32, device=meshes.device, requires_grad=True
             )
-        loss_dis = torch.norm_except_dim(src_points_data - trg_points_data, dim=1)[0]
         N = len(meshes)
         verts_packed = meshes.verts_packed()
         edges_packed = meshes.edges_packed()  # (sum(E_n), 3)
@@ -40,7 +39,7 @@ class BlendLoss:
         v0, v1 = verts_edges.unbind(1)
         updata_v0, updata_v1 = updata_verts_edges.unbind(1)
         # loss = torch.norm_except_dim(verts_packed-updata_verts_packed ,dim=1)[0] ** 2.0
-        loss = (v0 - updata_v0).norm(dim=1, p=2) ** 2 +  (v1 - updata_v1).norm(dim=1, p=2) ** 2
+        loss = ((v0 - updata_v0).norm(dim=1, p=2) ** 2 +  (v1 - updata_v1).norm(dim=1, p=2) ** 2) * weights
         return loss.sum()
 
 
