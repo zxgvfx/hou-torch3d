@@ -9,46 +9,12 @@ from pytorch3d.loss import (
     mesh_normal_consistency,
 )
 from pyLib.toolLib import dataConvert
+import pyLib.lossLib.blendloss as bl
 import imp
+imp.reload(bl)
 imp.reload(dataConvert)
-
-from pyLib.houLib.node.sop.sop_verb import SopNode
-
-
-def sample_points_from_geo(temp_point:hou.Geometry,
-                           temp_mesh: Meshes,
-                           trg_point:hou.Geometry,
-                           trg_mesh: Meshes=None, )->tuple[torch.Tensor,torch.Tensor]:
-    """
-    导入外部定位点数据，使用定位点将两个物体对应的区域标记，定位点需要包含 sourceprim，sourceprimuv 属性
-    通过sourceprim，sourceprimuv 属性，使用Attrib_Interpolate节点将输入的模板点插值。
-    :param temp_point: 模板Mesh定位点,可以从houdini sop中的topo landmark节点创建。也可以通过卷积识别产生。
-    :param trg_point: 目标Mesh定位点,可以从houdini sop中的topo landmark节点创建。也可以通过卷积识别产生。
-    :param temp_mesh: 模板Mesh
-    :param trg_mesh: 目标Mesh
-    :return: 返回一个含有两个元组的列表，第一个是模板点返回的Tensor张量
-    """
-    #先进行变形
-    temp_geo = dataConvert.Convert(t3d_geo=temp_mesh).toHoudini()
-    sn = SopNode()
-    sn.attrib_interpolate(temp_point, temp_geo)
-    temp_mesh_out = dataConvert.Convert(hou_geo=sn.geo).toMeshes()
-    if trg_mesh:
-        trg_geo = dataConvert.Convert(t3d_geo=trg_mesh).toHoudini()
-        sn = SopNode()
-        sn.attrib_interpolate(trg_point, trg_geo)
-        trg_mesh_out = dataConvert.Convert(hou_geo=sn.geo).toMeshes()
-    else:
-        trg_mesh_out = dataConvert.Convert(hou_geo=trg_point).toMeshes()
-    if isinstance(temp_mesh_out,Pointclouds) and isinstance(trg_mesh_out,Pointclouds) :
-        temp_p = temp_mesh_out.points_packed()
-        trg_p = trg_mesh_out.points_packed()
-    else:
-        temp_p = temp_mesh_out.verts_packed()
-        trg_p = trg_mesh_out.verts_packed()
-    return temp_p.reshape((1,-1,3)).cuda(),trg_p.reshape((1,-1,3)).cuda()
-
-
+from pyLib.houLib.tools import meshes_attr_interpolate
+imp.reload(meshes_attr_interpolate)
 
 class Blendshape:
     def __init__(self, temp_mesh: Meshes,
@@ -108,17 +74,19 @@ def train_with_geo(net:Blendshape,
     edge_losses = []
     normal_losses = []
     new_src_mesh = None
+    attrib_interpolate_loss = bl.BlendLoss.attrib_interpolate_loss
     for epoch in range(num_epoch):
         optimizer.zero_grad()
         new_src_mesh = net.update()
-        temp_points,trg_points = sample_points_from_geo(temp_geo,new_src_mesh,trg_geo)
-        loss_dis = torch.norm_except_dim(temp_points[0]-trg_points[0]).sum()
+        temp_points,trg_points,new_src_mesh_id,_= meshes_attr_interpolate.sample_points_from_geo(temp_geo,new_src_mesh,trg_geo)
+        attloss = attrib_interpolate_loss(temp_points,trg_points,new_src_mesh,new_src_mesh_id)
+        trg_points, src_points = net.sample_points(new_src_mesh, num_points=5000)
+        loss_chamfer, _ = chamfer_distance(trg_points, src_points)
         loss_edge = mesh_edge_loss(new_src_mesh)
-        # loss_normal = mesh_normal_consistency(new_src_mesh)
-        # loss_laplacian = mesh_laplacian_smoothing(new_src_mesh, method="uniform")
-        loss = loss_dis * net.w_chamfer + loss_edge * net.w_edge #+ loss_normal * net.w_normal + loss_laplacian * net.w_laplacian
-        # loss = loss_dis
-        print('total_loss = %.6f' % loss_dis)
+        loss_normal = mesh_normal_consistency(new_src_mesh)
+        loss_laplacian = mesh_laplacian_smoothing(new_src_mesh, method="uniform")
+        loss = attloss*0.1 + loss_chamfer +loss_edge * net.w_edge #+ loss_laplacian * net.w_laplacian + loss_normal * net.w_normal
+        print(f"loss:  {loss}")
         # chamfer_losses.append(float(loss_chamfer.detach().cpu()))
         # edge_losses.append(float(loss_edge.detach().cpu()))
         # normal_losses.append(float(loss_normal.detach().cpu()))
