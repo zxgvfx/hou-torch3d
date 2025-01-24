@@ -27,6 +27,7 @@ class CoreFuntion:
         :return:
         """
         poly = self.geo.createPolygon()
+
         for pt in p[:-1][::-1]:
             pts = self.geo.point(int(pt))
             poly.addVertex(pts)
@@ -77,17 +78,26 @@ class CoreFuntion:
             verts_list.append(pos)
         return np.array(verts_list,dtype=np.float32)
 
-    def create_np_verts_id(self, )-> np.ndarray:
+    def create_np_verts_id(self, )-> tuple[np.ndarray,list[int] ]:
         """
         hou face point(face_verts) index to numpy data。
         :param p: numpy data with index, index -> p[-1]
         :return: numpy data shape(triangles or quads,)
         """
+
         verts_id_list = []
+        verts_num_list = []
         for i in self.geo.prims():
             vert_id = np.array([n.number() for n in i.points()])[::-1]
             verts_id_list.append(vert_id)
-        return np.array(verts_id_list,dtype=np.int64)
+            verts_num_list.append(vert_id.shape[0])
+        max_face_pt = max(verts_num_list)
+        for index,v in enumerate(verts_id_list):
+            last_id = v[-1]
+            num_cat = max_face_pt - v.shape[0]
+            if num_cat >0:
+                verts_id_list[index] = np.pad(v,(0,int(num_cat)),'constant',constant_values = v[-1])
+        return np.array(verts_id_list,dtype=np.int64),verts_num_list
 
     def create_np_normal(self,p,) -> np.ndarray:
         """
@@ -122,6 +132,7 @@ class Convert:
         """
         self.t3d_geo = t3d_geo
         self.geo = hou_geo
+        self.verts_nums = []
         #---------other attribute------------
         self._attribs = dict()
         #---------------------------------
@@ -167,9 +178,9 @@ class Convert:
         verts_np = cf.create_np_verts()
         v = torch.from_numpy(verts_np)
         v = v.to(device=self.device)
-        # 目前只支持3边面
         if f_num != 0:
-            verts_id_np = cf.create_np_verts_id()
+            verts_id_np,verts_nums = cf.create_np_verts_id()
+            self.verts_nums = verts_nums
             f = torch.from_numpy(verts_id_np)
             f = f.to(device=self.device)
             verts_index, verts_id_index = self.create_index_by_data(v,f)
@@ -209,6 +220,19 @@ class Convert:
                 v,f =self.verts_index,self.verts_id_index
         else:
             v, f = verts_index, verts_id_index
+        #还原houdini顶点
+        if self.verts_nums:
+
+            new_f = [0]*len(self.verts_nums)
+            for index,verts_num in enumerate(self.verts_nums):
+                f_data = f[index].cpu().detach().numpy()
+                new_f[index] = f_data
+                if verts_num+1 != f_data.shape[0]:
+                    verts_id = f_data[:f_data.shape[0] - verts_num + 1]
+                    verts_id_with_index = np.concatenate((verts_id, f_data[-1:]), 0)
+                    new_f[index] = verts_id_with_index
+            f = new_f
+
         return gen_geo_by_data(v,f,self._attribs)
 
     def updateFromGeo(self,geo: hou.Geometry):
@@ -221,9 +245,8 @@ class Convert:
         verts,_ = torch.split(verts_index, verts_index.shape[-1]-1, dim=1)
         if verts_id_index.size().numel() == 0:
             self.t3d_geo = Pointclouds(points=[verts])
-
         else:
-            verts_id, _ = torch.split(verts_id_index, verts_index.shape[-1] - 1, dim=1)
+            verts_id, _ = torch.split(verts_id_index, verts_id_index.shape[-1] - 1, dim=1)
             self.t3d_geo = Meshes(verts=[verts],faces=[verts_id])
         self.geo = None
         self._init_data()
@@ -330,8 +353,13 @@ def gen_geo_by_data(verts_index:torch.Tensor,
     geo = hou.Geometry()
     cvt = CoreFuntion(geo)
     np.apply_along_axis(cvt.create_hou_points, 1, verts_index.cpu().detach().numpy())
-    if verts_id_index.size().numel() !=0 :
-        np.apply_along_axis(cvt.create_hou_prim, 1, verts_id_index.cpu().detach().numpy())
+    if isinstance(verts_id_index,torch.Tensor):
+        if verts_id_index.size().numel() !=0 :
+            np.apply_along_axis(cvt.create_hou_prim, 1, verts_id_index.cpu().detach().numpy())
+    else:
+        if len(verts_id_index) != 0:
+            for p in verts_id_index:
+                cvt.create_hou_prim(p)
     #add attribute
     if len(attributes.keys())>0:
         [cvt.create_hou_attribs(attributes,i) for i,p in enumerate(verts_index.cpu().detach().numpy())]
