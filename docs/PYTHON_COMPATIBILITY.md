@@ -74,8 +74,8 @@ pip install -r requirements.txt
 
 ```bash
 # 1. 安装核心依赖
-pip install torch>=2.1.0 pytorch3d>=0.7.4 numpy>=1.24.0
-
+pip install torch>=2.1.0 numpy>=1.24.0
+#pytroch3d 需要编译安装，安装cuda 12.4 + nvcc 
 # 2. 安装测试依赖
 pip install pytest>=7.4.0 pytest-cov>=4.1.0 pytest-mock>=3.11.0 pytest-xdist>=3.3.0
 
